@@ -46,12 +46,13 @@ DataFile fit_file { filename="fitness.csv"; };
 fit_file.ADD_COLUMN( "Average Fitness", "main_pop.CALC_MEAN('fitness')" );
 fit_file.ADD_COLUMN( "Maximum Fitness", "main_pop.CALC_MAX('fitness')" );
 fit_file.ADD_COLUMN( "Dominant Fitness", "main_pop.CALC_MODE('fitness')" );
+fit_file.ADD_COLUMN( "Dominant Genome", "main_pop.CALC_MODE('vals')" );
 
 OrgList best_org;
 DataFile max_file { filename="max_org.csv"; };
 max_file.ADD_SETUP( "best_org = main_pop.FIND_MAX('fitness')" );
 max_file.ADD_COLUMN( "Fitness", "best_org.TRAIT('fitness')" );
-max_file.ADD_COLUMN( "Genome", "best_org.TRAIT('vals')" );
+max_file.ADD_COLUMN( "Genome", "best_org.TRAIT('vals')");
 max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
 //max_file.ADD_
 
@@ -82,7 +83,6 @@ max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
            "  MainPopSize=", main_pop.SIZE(),
            "  AveFitness=", main_pop.CALC_MEAN("fitness"),
            "  MaxFitness=", main_pop.CALC_MAX("fitness"),
-           main_pop.TRAIT("vals"),
            // main_pop.TRAIT("scores"),
            // main_pop.CALC_MODE("vals"),
            // main_pop.CALC_MODE("scores"),           
