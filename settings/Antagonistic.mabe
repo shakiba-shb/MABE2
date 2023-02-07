@@ -33,7 +33,7 @@ EvalAntagonistic diagnostics {    // Evaluate set of values with a specified dia
   scores_trait = "scores";      // Which trait should we store revised scores in?
   N = num_vals;                 // How many values are we working with?
   total_trait = "fitness";      // Which trait should we store the total score in?
-
+  dampening = 2;
 };
 
 SelectLexicase select_l {       // Shuffle traits each time an organism is chose for replication.
@@ -53,6 +53,7 @@ max_file.ADD_SETUP( "best_org = main_pop.FIND_MAX('fitness')" );
 max_file.ADD_COLUMN( "Fitness", "best_org.TRAIT('fitness')" );
 max_file.ADD_COLUMN( "Genome", "best_org.TRAIT('vals')" );
 max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
+//max_file.ADD_
 
 @START() {
   PRINT("Beginning DIAGNOSTICS!\nMain config options:");
@@ -62,7 +63,9 @@ max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
   PRINT(" Population size:  ", pop_size);
   PRINT(" Random seed:      ", random_seed, "\n");
   PRINT(" Num Generations:  ", num_gens, "\n");
-  
+  PRINT(" Epsilon:  ", select_l.epsilon, "\n");
+  PRINT(" Dampening:  ", diagnostics.dampening, "\n");
+
   main_pop.INJECT("vals_org", pop_size);       // Inject starting population.
   PRINT(main_pop.TRAIT("vals"));
 }
@@ -80,9 +83,9 @@ max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
            "  AveFitness=", main_pop.CALC_MEAN("fitness"),
            "  MaxFitness=", main_pop.CALC_MAX("fitness"),
            main_pop.TRAIT("vals"),
-           main_pop.TRAIT("scores"),
-           main_pop.CALC_MODE("vals"),
-           main_pop.CALC_MODE("scores"),           
+           // main_pop.TRAIT("scores"),
+           // main_pop.CALC_MODE("vals"),
+           // main_pop.CALC_MODE("scores"),           
      );
      fit_file.WRITE();
      max_file.WRITE();

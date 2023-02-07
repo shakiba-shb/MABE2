@@ -23,6 +23,7 @@ namespace mabe {
   class EvalAntagonistic : public Module {
   private:
     size_t num_vals = 100;                     // Cardinality of the problem space.
+    double damp = 2;
     RequiredMultiTrait<double> vals_trait{this, "vals", "Set of values to evaluate.", AsConfig(num_vals)};
     OwnedMultiTrait<double> scores_trait{this, "scores", "Set of scores for each value.", AsConfig(num_vals)};
     OwnedTrait<double> total_trait{this, "total", "A single value totalling all scores."};
@@ -48,6 +49,7 @@ namespace mabe {
 
     void SetupConfig() override {
       LinkVar(num_vals, "N", "Cardinality of the problem (number of values to analyze)");
+      LinkVar(damp, "dampening", "Dampening factor");
     }
 
     void SetupModule() override {
@@ -88,7 +90,7 @@ namespace mabe {
           // if (i == pos) {
           //   scores[i] = vals[i];
           // } else {
-          scores[i] = vals[i] - (emp::Sum(vals) / 2.0) + vals[i]/2;
+          scores[i] = vals[i] - (emp::Sum(vals) / damp) + vals[i]/damp;
           // }
           total_score += scores[i];
         }
