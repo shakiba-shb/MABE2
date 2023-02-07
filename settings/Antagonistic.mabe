@@ -7,7 +7,7 @@ Var print_step = 100;           // Interval for printing...
 Population main_pop;
 Population next_pop;
 
-ValsOrg vals_org {              // Organism consisting of a series of floating-point values.
+IntsOrg vals_org {              // Organism consisting of a series of floating-point values.
   N = num_vals;                 // Number of values in organism
   mut_prob = 0.007;             // Probability of each value mutating on reproduction.
   mut_size = 5.0;               // Standard deviation on size of mutations.
@@ -58,7 +58,8 @@ max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
 
 @START() {
   PRINT("Beginning DIAGNOSTICS!\nMain config options:");
-  PRINT(" Num org values:   ", num_vals);
+  PRINT(" Num org values:   ", vals_org.N);
+  PRINT(" Num score values:   ", diagnostics.N);
   PRINT(" Mut Probability:  ", vals_org.mut_prob);
   PRINT(" Mut Size:         ", vals_org.mut_size);
   PRINT(" Population size:  ", pop_size);
@@ -84,11 +85,21 @@ max_file.ADD_COLUMN( "Scores", "best_org.TRAIT('scores')" );
            "  AveFitness=", main_pop.CALC_MEAN("fitness"),
            "  MaxFitness=", main_pop.CALC_MAX("fitness"),
            // main_pop.TRAIT("scores"),
-           // main_pop.CALC_MODE("vals"),
+           main_pop.CALC_MODE("vals"),
            // main_pop.CALC_MODE("scores"),           
      );
      fit_file.WRITE();
      max_file.WRITE();
+  }
+
+  IF (ud == num_gens){
+    Var idx = 0;
+    WHILE(idx < main_pop.NUM_ORGS()){
+      OrgList tmp_list = main_pop.INDEX(idx);
+      PRINT("[", idx, "] ", tmp_list.TRAIT("vals"), " ", tmp_list.TRAIT("fitness"));
+      idx = idx + 1;
+    }
+    EXIT();
   }
 
   select_l.SELECT(main_pop, next_pop, pop_size);

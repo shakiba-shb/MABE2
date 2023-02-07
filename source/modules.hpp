@@ -48,6 +48,7 @@
 // Organism Types
 #include "orgs/BitsOrg.hpp"
 #include "orgs/BitSummaryOrg.hpp"
+#include "orgs/IntsOrg.hpp"
 #include "orgs/ValsOrg.hpp"
 #include "orgs/AvidaGPOrg.hpp"
 #include "orgs/VirtualCPUOrg.hpp"
