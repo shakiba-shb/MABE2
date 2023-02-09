@@ -31,7 +31,7 @@ namespace mabe {
     double epsilon = 0.0;       ///< Range from max value to be preserved? (fraction of max)
     size_t sample_traits = 0;   ///< Number of test cases to use each generation (0=off)
 
-    Collection Select(Population & select_pop, Population & birth_pop, size_t num_births) {
+    Collection Select(Population & select_pop, Population & birth_pop, size_t num_births, bool do_muts = true) {
       if (num_births > 1 && select_pop.GetID() == birth_pop.GetID()) {
         emp::notify::Error("SelectLexicase requires birth_pop and select_pop to be different if selecting multiple organisms.");
         return Collection();
@@ -117,13 +117,13 @@ namespace mabe {
 
         // If there's only one organism left, replicate it!
         if (cur_orgs.size() == 1) {
-          placement_list += control.Replicate(select_pop.IteratorAt(cur_orgs[0]), birth_pop);
+          placement_list += control.Replicate(select_pop.IteratorAt(cur_orgs[0]), birth_pop, 1U, do_muts);
         }
 
         // Otherwise pick a random organism from the ones remaining.
         else {
           int org_id = cur_orgs[ random.GetUInt(cur_orgs.size()) ];
-          placement_list += control.Replicate(select_pop.IteratorAt(org_id), birth_pop);
+          placement_list += control.Replicate(select_pop.IteratorAt(org_id), birth_pop, 1U, do_muts);
         }
 
       }
@@ -146,7 +146,13 @@ namespace mabe {
       info.AddMemberFunction(
         "SELECT",
         [](SelectLexicase & mod, Population & from, Population & to, double count) {
-          return mod.Select(from,to,count);
+          return mod.Select(from,to,count, true);
+        },
+        "Perform lexicase selection on the identified population.");
+      info.AddMemberFunction(
+        "SELECT_NO_MUTS",
+        [](SelectLexicase & mod, Population & from, Population & to, double count) {
+          return mod.Select(from,to,count, false);
         },
         "Perform lexicase selection on the identified population.");
     }
