@@ -159,20 +159,21 @@ namespace mabe {
     emp::vector<locus_t> data;                        // Actual data in the genome.
     double mut_p = 0.0;                               // Mutation probability (LOTS TO DO HERE!)
     size_t min_size = 0;
-    size_t max_size = std::static_cast<size_t>(-1);
+    size_t max_size = static_cast<size_t>(-1);
 
     double alphabet_size = 4.0;
 
   public:
-    TypedGenome<LOCUS_T>() { }
-    TypedGenome<LOCUS_T>(this_t &) = default;
+    TypedGenome() { }
+    TypedGenome(this_t &) = default;
 
     emp::Ptr<Genome> Clone() override { return emp::NewPtr<this_t>(*this); }
     emp::Ptr<Genome> CloneProtocol() override {
-      emp::Ptr<Genome> out_ptr = NewPtr<this_t>();
-      out_ptr->mut_p = mut_p;
-      out_ptr->min_size = min_size;
-      out_ptr->max_size = max_size;
+      emp::Ptr<Genome> out_ptr = emp::NewPtr<this_t>();
+      emp::Ptr<this_t> out_ptr_typed = out_ptr.DynamicCast<this_t>();
+      out_ptr_typed->mut_p = mut_p;
+      out_ptr_typed->min_size = min_size;
+      out_ptr_typed->max_size = max_size;
       return out_ptr;
     }
 

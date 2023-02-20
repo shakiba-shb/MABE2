@@ -1,7 +1,7 @@
 /**
  *  @note This file is part of MABE, https://github.com/mercere99/MABE2
  *  @copyright Copyright (C) Michigan State University, MIT Software license; see doc/LICENSE.md
- *  @date 2019-2021.
+ *  @date 2019-2022.
  *
  *  @file  MABE.hpp
  *  @brief Master controller object for a MABE run.
@@ -27,13 +27,14 @@
 #include "emp/config/command_line.hpp"
 #include "emp/control/Signal.hpp"
 #include "emp/data/DataMap.hpp"
-#include "emp/data/DataMapParser.hpp"
+#include "emp/data/SimpleParser.hpp"
 #include "emp/datastructs/vector_utils.hpp"
 #include "emp/math/Random.hpp"
 #include "emp/tools/string_utils.hpp"
 
 #include "../Emplode/Emplode.hpp"
 
+#include "Batch.hpp"
 #include "Collection.hpp"
 #include "data_collect.hpp"
 #include "MABEBase.hpp"
@@ -42,6 +43,7 @@
 #include "Population.hpp"
 #include "SigListener.hpp"
 #include "TraitManager.hpp"
+#include "ActionMap.hpp"
 
 namespace mabe {
 
@@ -61,6 +63,8 @@ namespace mabe {
 
     /// Populations used; generated in the configuration file.
     emp::vector< emp::Ptr<Population> > pops;
+
+    emp::vector<ActionMap> action_maps;
 
     /// Organism pointer to use for all empty cells.
     emp::Ptr<Organism> empty_org = nullptr;
@@ -93,16 +97,13 @@ namespace mabe {
     emp::vector<std::string> config_settings;  ///< Additional config commands to run.
     std::string gen_filename;                  ///< Name of output file to generate.
     MABEScript config_script;                  ///< Configuration information for this run.
-
-
     // ----------- Helper Functions -----------    
     void ShowHelp();       ///< Print information on how to run the software.
     void ShowModules();    ///< List all available modules in the current compilation.
+    void RunBatch();       ///< Process a whole series of MABE runs.
     void ProcessArgs();    ///< Process all arguments passed in on the command line.
-
-    // -- Helper functions to be called inside of Setup() --
+    /// Setup a function as deprecated so we can phase it out.
     void Setup_Modules();  ///< Run SetupModule() method on each module we've loaded.
-    void Setup_Traits();   ///< Load organism traits and test for module conflicts.    
     void UpdateSignals();  ///< Link signals only to modules that respond to them.
 
   public:
@@ -112,11 +113,11 @@ namespace mabe {
     ~MABE() {
       before_exit_sig.Trigger();                      // Notify modules of end...
 
-      for (auto mod_ptr : modules) mod_ptr.Delete();  // Delete all modules.
       for (auto pop_ptr : pops) {                     // Delete all populations.
         ClearPop(*pop_ptr);
         pop_ptr.Delete();
       }
+      for (auto mod_ptr : modules) mod_ptr.Delete();  // Delete all modules.
       // Delete the empty organism AFTER clearing the populations, so it's not still used.
       if (empty_org) empty_org.Delete();
     }
@@ -126,8 +127,15 @@ namespace mabe {
       if (verbose) std::cout << emp::to_string(std::forward<Ts>(args)...) << std::endl;
     }
 
+    void PrintAST() override {
+      config_script.PrintAST();
+    }
+
     size_t GetRandomSeed() const override { return random.GetSeed(); }
-    void SetRandomSeed(size_t in_seed) override { random.ResetSeed(in_seed); }
+    void SetRandomSeed(size_t in_seed) override {
+      std::cout << "Setting Random Seed to " << in_seed << std::endl;
+      random.ResetSeed(in_seed);
+    }
 
     // --- Tools to setup runs ---
     bool Setup();
@@ -144,6 +152,9 @@ namespace mabe {
     int GetPopID(std::string_view pop_name) const {
       return emp::FindEval(pops, [pop_name](const auto & p){ return p->GetName() == pop_name; });
     }
+    const ActionMap & GetActionMap(size_t id) const { return action_maps[id]; }
+    ActionMap & GetActionMap(size_t id) { return action_maps[id]; }
+
     Population & GetPopulation(size_t id) { return *pops[id]; }
     const Population & GetPopulation(size_t id) const { return *pops[id]; }
     Population & AddPopulation(const std::string & name, size_t pop_size=0) override;
@@ -283,11 +294,24 @@ namespace mabe {
     // --- Deal with Organism TRAITS ---
     TraitManager<ModuleBase> & GetTraitManager() { return trait_man; }
 
+    /// Resets ALL traits for a given organism to their default values
+    void ResetTraits(Organism& org){
+      trait_man.ResetAll(org.GetDataMap());
+    }
+
+    /// Return the DataMap for organisms
+    emp::DataMap GetOrganismDataMap(){
+      return org_data_map;
+    }
+
     /// Build a lambda function that takes an organism applied the provided equation to it.
     /// (The provided data layout must match that or the organisms.)
-    auto BuildTraitEquation(const emp::DataLayout & data_layout, const std::string & equation) {
+    auto BuildTraitEquation(const emp::DataLayout & data_layout, const std::string & equation)
+    {
       return config_script.BuildTraitEquation(data_layout, equation);
     }
+    
+    void Setup_Traits();   ///< Load organism traits and test for module conflicts.    
 
     /// Build a trait equations for organisms in a given population.
     auto BuildTraitEquation(const Population & pop, const std::string & equation) {
@@ -297,6 +321,8 @@ namespace mabe {
     const std::set<std::string> & GetEquationTraits(const std::string & equation) {
       return config_script.GetEquationTraits(equation);
     }
+
+    MABEScript& GetConfigScript(){ return config_script; }
 
     bool OK();           ///< Sanity checks for debugging
 
@@ -344,8 +370,17 @@ namespace mabe {
       std::cout << "TOPIC: " << help_topic << std::endl;
       if (emp::Has(mod_map, help_topic)) {
         const auto & info = mod_map[help_topic];
-        std::cout << "--- MABE Module ---\n"
-                  << "Description: " << info.desc << "\n";
+        std::cout << "\n--- MABE Module ---\n\n"
+                  << "Description:\n";
+        for (const std::string & line : info.full_desc) {
+          std::cout << "  " << line << "\n";
+        }
+        std::cout << "\nDefault Configuration:\n\n";
+
+        // Print a configuration template for the user.
+        std::string config_code =info.name + " example_module;";
+        config_script.LoadStatements(config_code, "help_output");
+        config_script.WriteSymbol("example_module", std::cout, "  ");
       }
       else {
         std::cout << "Unknown keyword.\n";
@@ -364,12 +399,34 @@ namespace mabe {
     // }          
     std::cout << "Available modules:\n";
     for (auto & [type_name,mod] : GetModuleMap()) {
-      std::cout << "  " << type_name << " : " << mod.desc << "\n";
+      std::cout << "  " << type_name << " : " << mod.brief_desc << "\n";
     }          
     exit_now = true;;
   }
 
+
+  void MABE::RunBatch() {
+    exit_now = true;  // Exit after running the batch of files.
+
+    if (config_filenames.size() == 0) {
+      std::cout << "Must specify name of batch file to run." << std::endl;
+      return;
+    }
+    if (config_filenames.size() > 1) {
+      std::cout << "Only one batch file may be specified." << std::endl;
+      for (size_t i = 1; i < config_filenames.size(); ++i) {
+        std::cout << "...ignoring '" << config_filenames[i] << "'" << std::endl;
+      }
+    }
+
+    mabe::Batch batch(config_filenames[0], args[0]);
+    batch.Process();
+    batch.Run();
+  }
+
   void MABE::ProcessArgs() {
+    arg_set.emplace_back("--batch", "-b",    "[filename]    ", "Process a full batch of runs",
+      [this](const emp::vector<std::string> & in){ config_filenames = in; RunBatch(); } );    
     arg_set.emplace_back("--filename", "-f", "[filename...] ", "Filenames of configuration settings",
       [this](const emp::vector<std::string> & in){ config_filenames = in; } );
     arg_set.emplace_back("--generate", "-g", "[filename]    ", "Generate a new output file",
@@ -397,6 +454,9 @@ namespace mabe {
       [this](const emp::vector<std::string> &){ ShowModules(); } );
     arg_set.emplace_back("--set", "-s", "[param=value] ", "Set specified parameter",
       [this](const emp::vector<std::string> & in){
+        std::cout << "Adding command-line setting:";
+        for (const std::string & x : in) std::cout << " " << x;
+        std::cout << std::endl;
         emp::Append(config_settings, in);
         config_settings.push_back(";"); // Extra semi-colon so not needed on command line.
       });
@@ -443,7 +503,10 @@ namespace mabe {
     // Allow the user-defined module SetupModule() member functions run.  These are
     // typically used for any internal setup needed by modules are the configuration is
     // complete.
-    for (emp::Ptr<ModuleBase> mod_ptr : modules) mod_ptr->SetupModule();
+    for (emp::Ptr<ModuleBase> mod_ptr : modules) {
+      mod_ptr->SetupModule_Internal();
+      mod_ptr->SetupModule();
+    }
   }
 
   /// As part of the main Setup(), load in all of the organism traits that modules need to
@@ -457,7 +520,8 @@ namespace mabe {
 
     // Alert modules (especially org managers) to the final set of traits.
     for (emp::Ptr<ModuleBase> mod_ptr : modules) {
-      mod_ptr->SetupDataMap(org_data_map);
+      mod_ptr->SetupDataMap_Internal(org_data_map); // Internal indication that DataMap is locked in.
+      mod_ptr->SetupDataMap(org_data_map);    // User-available indication that DataMap is locked in.
     }
   }
 
@@ -502,7 +566,7 @@ namespace mabe {
       auto mod_init_fun = [this,mod=&mod](const std::string & name) -> emp::Ptr<emplode::EmplodeType> {
         return mod->obj_init_fun(*this,name);
       };
-      auto & type_info = config_script.AddType(type_name, mod.desc, mod_init_fun, nullptr, mod.type_id);
+      auto & type_info = config_script.AddType(type_name, mod.brief_desc, mod_init_fun, nullptr, mod.type_id);
       mod.type_init_fun(type_info);  // Setup functions for this module.
     }
   }
@@ -548,7 +612,9 @@ namespace mabe {
   /// Update MABE world.
   void MABE::Update(size_t num_updates) {
     if (update == 0) config_script.Trigger("START");
-    for (size_t ud = 0; ud < num_updates && !exit_now; ud++) {
+
+    const size_t target_update = update + num_updates;
+    while (update < target_update && !exit_now) {
       emp_assert(OK(), update);                 // In debug mode, keep checking MABE integrity
       if (rescan_signals) UpdateSignals();      // If we have reason to, update module signals
       before_update_sig.Trigger(update);        // Signal that a new update is about to begin
@@ -587,6 +653,7 @@ namespace mabe {
       // Return a random org since no structure to population.
       return OrgPosition(new_pop, GetRandom().GetUInt(new_pop->GetSize()));
     });
+    action_maps.emplace_back();
 
     return *new_pop;
   }

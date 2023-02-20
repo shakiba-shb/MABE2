@@ -7,6 +7,35 @@
  *  @brief Manages parsing of Emplode language input streams.
  *  @note Status: BETA
  * 
+ * 
+ *  ParseState is a class that tracks:
+ *  - The position in the incoming token stream that we are parsing.
+ *  - The symbol table that is being constructed
+ *  - The current scope we are in
+ *  - The lexer that was used to build the token stream.
+ * 
+ *  The Parser itself uses ParseState to convert the incoming token stream into
+ *  an abstract syntax tree.
+ * 
+ *  All Parse* functions take in the current parse state and advance it appropriately
+ *  (including updating the symbol table and position in the token stream).  
+ *  Unless otherwise specified, parse functions generate the abstract syntax tree nodes
+ *  that represent the material parsed.  
+ * 
+ *  Parsing member functions include:
+ * 
+ *    ASTPtr ParseVar(ParseState & state, bool create_ok=false, bool scan_scopes=true);
+ *    ASTPtr ParseValue(ParseState & state);
+ *    ASTPtr ParseExpression(ParseState & state, bool decl_ok=false, size_t prec_limit=1000);
+ *    Symbol & ParseDeclaration(ParseState & state);
+ *    ASTPtr ParseEvent(ParseState & state);
+ *    ASTPtr ParseKeywordStatement(ParseState & state);   // IF, WHILE, etc
+ *    ASTPtr ParseStatement(ParseState & state);  // variable declaration, expression, or event.
+ *    ASTPtr ParseStatementList(ParseState & state); // Go to end of scope of file
+ * 
+ *  Other helper functions include:
+ *    /// Calculate the result of the provided operation on two computed entries.
+ *    ASTPtr ProcessOperation(const emp::Token & op_token, ASTPtr tree1, ASTPtr tree2);
  */
 
 #ifndef EMPLODE_PARSER_HPP
@@ -191,11 +220,12 @@ namespace emplode {
   class Parser {
   private:
     std::unordered_map<std::string, size_t> precedence_map;  ///< Precedence levels for symbols.
-    bool debug = false;                                      ///< Print full debug information?
 
+    /// Print only when debugging.
+    /// To activate debugging data, do: emp::notify::SetVerbose("emplode::Parser");
     template <typename... Ts>
     void Debug(Ts... args) const {
-      if (debug) std::cout << "DEBUG: " << emp::to_string(std::forward<Ts>(args)...) << std::endl;
+      emp::notify::Verbose("Emplode::Parser", emp::to_string(std::forward<Ts>(args)...));
     }
 
   public:
@@ -215,8 +245,11 @@ namespace emplode {
     ~Parser() {}
 
     /// Load a variable name from the provided scope.
-    /// If create_ok is true, create any variables that we don't find.  Otherwise continue the
-    /// search for them in successively outer (lower) scopes.
+    /// @param state the current state of parsing (token stream, symbol table, etc.)
+    /// @param create_ok indicates if we should create any variables that we don't find.
+    /// @param scan_scopes indicares if we should continue the search for variabels in
+    ///        successively outer (lower) scopes.
+    /// @return An AST leaf node representing the variable found.
     [[nodiscard]] emp::Ptr<ASTNode_Leaf> ParseVar(ParseState & state,
                                                   bool create_ok=false,
                                                   bool scan_scopes=true);
@@ -323,7 +356,7 @@ namespace emplode {
 
     // First check for a unary negation at the start of the value.
     if (state.UseIfChar('-')) {
-      auto out_val = emp::NewPtr<ASTNode_Math1>("unary negation", state.GetLine());
+      auto out_val = emp::NewPtr<ASTNode_Op1>("unary negation", state.GetLine());
       out_val->SetFun( [](double val){ return -val; } );
       out_val->AddChild(ParseValue(state));
       return out_val;
@@ -370,77 +403,30 @@ namespace emplode {
     // If this operation is assignment, do so!
     if (symbol == "=") return emp::NewPtr<ASTNode_Assign>(in_node1, in_node2, op_token.line_id);
     
-    // If the first argument is numeric, assume we are using a math operator.
-    if (in_node1->IsNumeric()) {
+    // Determine the output value and put it in a temporary node.
+    emp::Ptr<ASTNode_Op2> out_val = emp::NewPtr<ASTNode_Op2>(symbol, op_token.line_id);
 
-      // Determine the output value and put it in a temporary node.
-      emp::Ptr<ASTNode_Math2> out_val = emp::NewPtr<ASTNode_Math2>(symbol, op_token.line_id);
+    if (symbol == "+") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 + v2; } );
+    else if (symbol == "-") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 - v2; } );
+    else if (symbol == "**") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return emp::Pow(v1.AsDouble(), v2.AsDouble()); } );
+    else if (symbol == "*") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 * v2; } );
+    else if (symbol == "/") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 / v2; } );
+    else if (symbol == "%") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 % v2; } );
+    else if (symbol == "==") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 == v2; } );
+    else if (symbol == "!=") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 != v2; } );
+    else if (symbol == "<")  out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 < v2; } );
+    else if (symbol == "<=") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 <= v2; } );
+    else if (symbol == ">")  out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 > v2; } );
+    else if (symbol == ">=") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 >= v2; } );
 
-      if (symbol == "+") out_val->SetFun( [](double v1, double v2){ return v1 + v2; } );
-      else if (symbol == "-") out_val->SetFun( [](double v1, double v2){ return v1 - v2; } );
-      else if (symbol == "**") out_val->SetFun( [](double v1, double v2){ return emp::Pow(v1, v2); } );
-      else if (symbol == "*") out_val->SetFun( [](double v1, double v2){ return v1 * v2; } );
-      else if (symbol == "/") out_val->SetFun( [](double v1, double v2){ return v1 / v2; } );
-      else if (symbol == "%") out_val->SetFun( [](double v1, double v2){ return emp::Mod(v1, v2); } );
-      else if (symbol == "==") out_val->SetFun( [](double v1, double v2){ return v1 == v2; } );
-      else if (symbol == "!=") out_val->SetFun( [](double v1, double v2){ return v1 != v2; } );
-      else if (symbol == "<")  out_val->SetFun( [](double v1, double v2){ return v1 < v2; } );
-      else if (symbol == "<=") out_val->SetFun( [](double v1, double v2){ return v1 <= v2; } );
-      else if (symbol == ">")  out_val->SetFun( [](double v1, double v2){ return v1 > v2; } );
-      else if (symbol == ">=") out_val->SetFun( [](double v1, double v2){ return v1 >= v2; } );
+    // @CAO: Need to still handle these last two differently for short-circuiting.
+    else if (symbol == "&&") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 && v2; } );
+    else if (symbol == "||") out_val->SetFun( [](emp::Datum v1, emp::Datum v2){ return v1 || v2; } );
 
-      // @CAO: Need to still handle these last two differently for short-circuiting.
-      else if (symbol == "&&") out_val->SetFun( [](double v1, double v2){ return v1 && v2; } );
-      else if (symbol == "||") out_val->SetFun( [](double v1, double v2){ return v1 || v2; } );
+    out_val->AddChild(in_node1);
+    out_val->AddChild(in_node2);
 
-      out_val->AddChild(in_node1);
-      out_val->AddChild(in_node2);
-
-      return out_val;
-    }
-
-    // Otherwise assume that we are dealing with strings.
-    if (symbol == "+") {
-      auto out_val =
-        emp::NewPtr<ASTNode_Op2<std::string,std::string,std::string>>(symbol, op_token.line_id);
-      out_val->SetFun([](std::string val1, std::string val2){ return val1 + val2; });
-      out_val->AddChild(in_node1);
-      out_val->AddChild(in_node2);
-
-      return out_val;
-    }
-    else if (symbol == "*") {
-      auto fun = [](std::string val1, double val2) {
-        std::string out_string;
-        out_string.reserve(val1.size() * (size_t) val2);
-        for (size_t i = 0; i < (size_t) val2; i++) out_string += val1;
-        return out_string;
-      };
-
-      auto out_val = emp::NewPtr<ASTNode_Op2<std::string,std::string,double>>(symbol, op_token.line_id);
-      out_val->SetFun(fun);
-      out_val->AddChild(in_node1);
-      out_val->AddChild(in_node2);
-
-      return out_val;
-    }
-    else {
-      auto out_val = emp::NewPtr<ASTNode_Op2<double,std::string,std::string>>(symbol, op_token.line_id);
-
-      if (symbol == "==")      out_val->SetFun([](std::string v1, std::string v2){ return v1 == v2; });
-      else if (symbol == "!=") out_val->SetFun([](std::string v1, std::string v2){ return v1 != v2; });
-      else if (symbol == "<")  out_val->SetFun([](std::string v1, std::string v2){ return v1 < v2; });
-      else if (symbol == "<=") out_val->SetFun([](std::string v1, std::string v2){ return v1 <= v2; });
-      else if (symbol == ">")  out_val->SetFun([](std::string v1, std::string v2){ return v1 > v2; });
-      else if (symbol == ">=") out_val->SetFun([](std::string v1, std::string v2){ return v1 >= v2; });
-
-      out_val->AddChild(in_node1);
-      out_val->AddChild(in_node2);
-
-      return out_val;
-    }
-
-    return nullptr;
+    return out_val;
   }
                                       
 
@@ -570,6 +556,17 @@ namespace emplode {
       return emp::NewPtr<ASTNode_If>(test_node, true_node, else_node, keyword_line);
     }
 
+    else if (state.UseIfLexeme("WHILE")) {
+      state.UseRequiredChar('(', "Expected '(' to begin IF test condition.");
+      emp::Ptr<ASTNode> test_node = ParseExpression(state);
+      state.UseRequiredChar(')', "Expected ')' to end IF test condition.");
+      emp::Ptr<ASTNode> body_node = ParseStatement(state);
+      return emp::NewPtr<ASTNode_While>(test_node, body_node, keyword_line);
+    }
+
+    else if (state.UseIfLexeme("BREAK")) { return MakeBreakLeaf(keyword_line); }
+
+    else if (state.UseIfLexeme("CONTINUE")) { return MakeContinueLeaf(keyword_line); }
 
     // If we made it this far, we have an error.  Identify and deal with it!
 

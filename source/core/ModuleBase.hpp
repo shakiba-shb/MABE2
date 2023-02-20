@@ -1,7 +1,7 @@
 /**
  *  @note This file is part of MABE, https://github.com/mercere99/MABE2
  *  @copyright Copyright (C) Michigan State University, MIT Software license; see doc/LICENSE.md
- *  @date 2019-2021.
+ *  @date 2019-2022.
  *
  *  @file  ModuleBase.hpp
  *  @brief Base class for Module, which (in turn) is the base class for all MABE modules
@@ -25,7 +25,7 @@
  *     OnUpdate(size_t new_update)
  *       : New update has just started.
  *     BeforeRepro(OrgPosition parent_pos)
- *       : Parent is about to reporduce.
+ *       : Parent is about to reproduce.
  *     OnOffspringReady(Organism & offspring, OrgPosition parent_pos, Population & target_pop)
  *       : Offspring is ready to be placed.
  *     OnInjectReady(Organism & inject_org, Population & pop)
@@ -74,16 +74,19 @@
 
 namespace mabe {
 
+  class BaseTrait;
   class MABE;
   class OrgType;
   class Organism;
   class OrgPosition;
   class Population;
+  template <typename MOD_T> class TraitManager;
 
   using emplode::EmplodeType;
 
   class ModuleBase : public EmplodeType {
     friend MABE;
+    friend BaseTrait;
   protected:
     std::string name;          ///< Unique name for this module.
     std::string desc;          ///< Description for this module.
@@ -104,6 +107,9 @@ namespace mabe {
 
     /// Set of traits that this module is working with.
     emp::map<std::string, emp::Ptr<TraitInfo>> trait_map;
+
+    /// Trait object used in this module.
+    emp::vector<emp::Ptr<BaseTrait>> trait_ptrs;
 
     /// Other variables that we want to hook on to this Module externally.
     emp::DataMap data_map;
@@ -169,6 +175,8 @@ namespace mabe {
       for (auto & x : trait_map) x.second.Delete();
     }
 
+    virtual TraitManager<ModuleBase> & GetTraitManager() =  0;
+
     /// By DEFAULT modules do not do anything extra when copying themselves.
     bool CopyValue(const EmplodeType &) override { return true; }
 
@@ -208,11 +216,17 @@ namespace mabe {
     ModuleBase & SetSelectMod(bool in=true) { return SetActionTag("Select", in); }
     ModuleBase & SetVisualizerMod(bool in=true) { return SetActionTag("Visualize", in); }
 
-    // Allow modules to setup any traits or other internal state after config is loaded.
+    /// Allow modules to setup any traits or other internal state after config is loaded.
     virtual void SetupModule() { /* By default, assume no setup needed. */ }
 
-    // Once data maps are locked in (no new traits allowed) modules can use that information.
+    /// Internal notification for a module that config is loaded.
+    virtual void SetupModule_Internal() = 0;
+
+    /// Once data maps are locked in (no new traits allowed) modules can use that information.
     virtual void SetupDataMap(emp::DataMap &) { /* By default, no setup needed. */ }
+
+    /// Internal notification of DataMaps being locked in.
+    virtual void SetupDataMap_Internal(emp::DataMap &) = 0;
 
     // ----==== SIGNALS ====----
 
@@ -282,7 +296,8 @@ namespace mabe {
 
   struct ModuleInfo {
     std::string name;
-    std::string desc;
+    std::string brief_desc;
+    emp::vector<std::string> full_desc;
     std::function<emp::Ptr<EmplodeType>(MABE &, const std::string &)> obj_init_fun;
     std::function<void(emplode::TypeInfo &)> type_init_fun;
     emp::TypeID type_id;
@@ -297,7 +312,7 @@ namespace mabe {
   static void PrintModuleInfo() {
     auto & mod_type_map = GetModuleMap();
     for (auto & [name,mod] : mod_type_map) {
-      std::cout << name << " : " << mod.desc << std::endl;
+      std::cout << name << " : " << mod.brief_desc << std::endl;
     }
   }
 }

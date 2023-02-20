@@ -22,6 +22,9 @@ namespace emplode {
   class Symbol_Linked : public Symbol {
   private:
     T & var;
+
+    static_assert(!std::is_const<T>(), "Variables cannot be const.");
+    
   public:
     using this_t = Symbol_Linked<T>;
 
@@ -44,6 +47,8 @@ namespace emplode {
       var = emp::from_string<T>(in);
       return *this;
     }
+
+    bool HasValue() const override { return true; }
 
     bool IsNumeric() const override { return std::is_scalar_v<T>; }
 
@@ -71,6 +76,8 @@ namespace emplode {
     std::string AsString() const override { return var; }
     Symbol & SetValue(double in) override { var = emp::to_string(in); return *this; }
     Symbol & SetString(const std::string & in) override { var = in; return *this; }
+
+    bool HasValue() const override { return true; }
 
     bool IsString() const override { return true; }
 
@@ -110,10 +117,16 @@ namespace emplode {
       return *this;
     }
 
+    bool HasValue() const override { return true; }
+
     bool IsNumeric() const override { return std::is_scalar_v<T>; }
     bool IsString() const override { return std::is_same<std::string, T>(); }
 
-    bool CopyValue(const Symbol & in) override { SetString( in.AsString() ); return true; }
+    bool CopyValue(const Symbol & in) override {
+      if (in.IsNumeric()) SetValue(in.AsDouble());
+      else SetString(in.AsString());
+      return true;
+    }
   };
 
 }

@@ -45,8 +45,13 @@ namespace emplode {
 
     virtual ~EmplodeType() { }
 
-    // Optional function to override to add configuration options associated with an object.
-    virtual void SetupConfig() { };
+    virtual std::string ToString() const { return "[[__EMPLODE_OBJECT__]]"; }
+
+    /// Optional function to override to add configuration options associated with an object.
+    virtual void SetupConfig() { }
+
+    /// Optional function to build a new type category that requires internal configuration setup.
+    virtual void SetupConfig_Internal() { }
 
     // Normally when an EmplodeType is copied, just the scope variables are copied over.
     // Override CopyValue() if more needs to happen.
@@ -62,10 +67,11 @@ namespace emplode {
     }
 
     /// Setup an instance of a new EmplodeType object; provide it with its symbol and type information.    
-    void Setup(Symbol_Object & in_symbol) {
+    void Setup(Symbol_Scope & in_symbol) {
       symbol_ptr = &in_symbol;
 
       // Link specialized variable for the derived type.
+      SetupConfig_Internal();
       SetupConfig();
 
       // Load in any member function for this object into the object.

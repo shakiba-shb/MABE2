@@ -1,7 +1,7 @@
 /**
  *  @note This file is part of MABE, https://github.com/mercere99/MABE2
  *  @copyright Copyright (C) Michigan State University, MIT Software license; see doc/LICENSE.md
- *  @date 2019-2021.
+ *  @date 2019-2022.
  *
  *  @file  TraitInfo.hpp
  *  @brief Information about a single phenotypic trait.
@@ -11,7 +11,7 @@
  *
  *  The TARGET indicates what type of object the trait should be applied to.
  *    [ORGANISM]   - Every organism in MABE must have this trait.
- *    [POPULATION] - Collections of organsims must have this trait.
+ *    [POPULATION] - Collections of organisms must have this trait.
  *    [MODULE]     - Every module attached to MABE must have this trait.
  *    [MANAGER]    - Every OrganismManager must have this trait.
  * 
@@ -69,6 +69,7 @@ namespace mabe {
     std::string desc="";                 ///< Description of this trait.
     emp::TypeID type;                    ///< Type identifier for this trait.
     emp::vector<emp::TypeID> alt_types;  ///< What other types should be allowed?
+    size_t val_count=1;                  ///< How many values are associated with this trait?
 
   public:
     /// Which modules are allowed to read or write this trait?
@@ -85,10 +86,10 @@ namespace mabe {
 
     /// How should this trait be initialized (via inheritance) in a newly-born organism?
     /// * Injected organisms always use the default value.
-    /// * Modules can moitor signals to make other changes at any time.
+    /// * Modules can monitor signals to make other changes at any time.
     enum class Init {
       DEFAULT=0, ///< Trait is initialized to a pre-set default value.
-      FIRST,     ///< Trait is inhereted (from first parent if more than one)
+      FIRST,     ///< Trait is inherited (from first parent if more than one)
       AVERAGE,   ///< Trait becomes average of all parents on birth.
       MINIMUM,   ///< Trait becomes lowest of all parents on birth.
       MAXIMUM,   ///< Trait becomes highest of all parents on birth.
@@ -122,6 +123,9 @@ namespace mabe {
       SUMMARY,    ///< Basic summary (min, max, count, ave) of current/final values.
       FULL,       ///< Store ALL current/final values for organisms.
     };
+
+    /// Special value count to represent ANY count is allowed.
+    static constexpr const size_t ANY_COUNT = static_cast<size_t>(-1);
 
   protected:
     Init init = Init::DEFAULT;
@@ -165,12 +169,16 @@ namespace mabe {
     const std::string & GetDesc() const { return desc; }
     emp::TypeID GetType() const { return type; }
     const emp::vector<emp::TypeID> & GetAltTypes() const { return alt_types; }
+    size_t GetValueCount() const { return val_count; }
+
+    virtual bool IsAnyType() const { return false; }
 
     template <typename... Ts>
     void SetAltTypes(const emp::vector<emp::TypeID> & in_alt_types) { alt_types = in_alt_types; }
     template <typename T> bool IsType() const { return GetType() == emp::GetTypeID<T>(); }
     bool IsAllowedType(emp::TypeID test_type) const { return Has(alt_types, test_type); };
     template <typename T> bool IsAllowedType() const { return IsAllowedType(emp::GetTypeID<T>()); }
+    void SetValueCount(size_t in_count) { val_count = in_count; }
 
     /// Determine what kind of access a module has.
     Access GetAccess(mod_ptr_t mod_ptr) const {
@@ -238,7 +246,7 @@ namespace mabe {
     TraitInfo & SetName(const std::string & in_name) { name = in_name; return *this; }
     TraitInfo & SetDesc(const std::string & in_desc) { desc = in_desc; return *this; }
  
-    // Add a module that can access this trait.
+    /// Add a module that can access this trait.
     TraitInfo & AddAccess(const std::string & in_name, mod_ptr_t in_mod, Access access, bool is_manager) {
       access_info.push_back(ModuleInfo{ in_name, in_mod, access, is_manager });
       access_counts[access]++;
@@ -246,16 +254,26 @@ namespace mabe {
       return *this;
     }
 
-    /// Set the current value of this trait to be automatically inthereted by offspring.
+    /// Add all of the accesses from a previous TraitInfo object.
+    TraitInfo & AddAccess(const TraitInfo & in) {
+      for (const auto & mod_info : in.access_info) access_info.push_back(mod_info);
+      for (size_t i = 0; i < NUM_ACCESS; ++i) {
+        access_counts[i] += in.access_counts[i];
+        manager_access_counts[i] += in.manager_access_counts[i];
+      }
+      return *this;
+    }
+
+    /// Set the current value of this trait to be automatically inherited by offspring.
     TraitInfo & SetInheritParent() { init = Init::FIRST; return *this; }
 
-    /// Set the average across parents for this trait to be automatically inthereted by offspring.
+    /// Set the average across parents for this trait to be automatically inherited by offspring.
     TraitInfo & SetInheritAverage() { init = Init::AVERAGE; return *this; }
 
-    /// Set the minimum across parents for this trait to be automatically inthereted by offspring.
+    /// Set the minimum across parents for this trait to be automatically inherited by offspring.
     TraitInfo & SetInheritMinimum() { init = Init::MINIMUM; return *this; }
 
-    /// Set the maximum across parents for this trait to be automatically inthereted by offspring.
+    /// Set the maximum across parents for this trait to be automatically inherited by offspring.
     TraitInfo & SetInheritMaximum() { init = Init::MAXIMUM; return *this; }
 
     /// Set the parent to ALSO reset to the same value as the offspring on divide.
@@ -268,7 +286,10 @@ namespace mabe {
     TraitInfo & SetArchiveAll() { archive = Archive::ALL_REPRO; return *this; }
 
     /// Register this trait in the provided DataMap.
-    virtual void Register(emp::DataMap & dm) const = 0;
+    virtual bool Register(emp::DataMap &) const { return false; }
+    
+    /// Reset this trait back to its default value.
+    virtual bool ResetToDefault(emp::DataMap &) { return false; }
   };
 
   // Information about this trait, including type information and alternate type options.
@@ -283,12 +304,14 @@ namespace mabe {
     {
       name = in_name;
       type = emp::GetTypeID<T>();
+      val_count = 1;
     }
 
-    TypedTraitInfo(const std::string & in_name, const T & in_default)
+    TypedTraitInfo(const std::string & in_name, const T & in_default, size_t in_count)
       : default_value(in_default), has_default(true)
     {
       name = in_name;
+      val_count = in_count;
       type = emp::GetTypeID<T>();
     }
 
@@ -301,13 +324,30 @@ namespace mabe {
       has_default = true;
       return *this;
     }
+
+    bool ResetToDefault(emp::DataMap& dm) override {
+      emp_assert(dm.HasName(GetName()));
+      emp_assert(dm.IsType<T>(GetName()));
+
+      T& val = dm.Get<T>(GetName());
+      if(has_default) val = default_value;
+      else val = { };
+      return true;
+    }
     
-    void Register(emp::DataMap & dm) const override {
-      dm.AddVar(name, default_value, desc);
+    bool Register(emp::DataMap & dm) const override {
+      dm.AddVar(name, default_value, desc, "MABE Trait", val_count);
+      return true;
     }
 
   };
 
+  // Information about a trait that is currently only accessed as a string.
+  class TraitInfoAsString : public TraitInfo {
+  public:
+    TraitInfoAsString(const std::string & in_name="") { name = in_name; }
+    bool IsAnyType() const override { return true; }
+  };
 }
 
 #endif

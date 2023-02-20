@@ -132,10 +132,10 @@ namespace emplode {
 
       // 'PRINT' is a simple debugging command to output the value of a variable.
       auto print_fun = [](const emp::vector<emp::Ptr<Symbol>> & args) {
-          for (auto entry_ptr : args) entry_ptr->Print(std::cout);
-          std::cout << std::endl;
-          return 0;
-        };
+        for (auto entry_ptr : args) entry_ptr->Print(std::cout);
+        std::cout << std::endl;
+        return 0;
+      };
       AddFunction("PRINT", print_fun, "Print out the provided variables.");
 
       // Default 1-input math functions
@@ -189,7 +189,7 @@ namespace emplode {
         return emp::NewPtr<DataFile>(name, symbol_table.GetFileManager());
       };
       auto df_copy = symbol_table.DefaultCopyFun<DataFile>();
-      auto & df_type = AddType<DataFile>("DataFile", "Manage CSV-style date file output.",
+      auto & df_type = AddType<DataFile>("DataFile", "Manage CSV-style data file output.",
                                          df_init, df_copy, true);
       df_type.AddMemberFunction(
         "ADD_COLUMN",
@@ -216,6 +216,8 @@ namespace emplode {
     Emplode(Emplode &&) = delete;
     Emplode & operator=(const Emplode &) = delete;
     Emplode & operator=(Emplode &&) = delete;
+
+    void PrintAST() { ast_root.PrintAST(); }
 
     /// Create a new type of event that can be used in the scripting language.
     bool AddSignal(const std::string & name) { return symbol_table.AddSignal(name); }
@@ -251,7 +253,7 @@ namespace emplode {
     SymbolTable & GetSymbolTable() { return symbol_table; }
     const SymbolTable & GetSymbolTable() const { return symbol_table; }
 
-    // Load a single, specified configuration file.
+    /// Load a single, specified configuration file.
     void Load(const std::string & filename) {
       std::ifstream file(filename);           // Load the provided file.
       emp::TokenStream tokens = lexer.Tokenize(file, filename);          // Convert to more-usable tokens.
@@ -261,21 +263,24 @@ namespace emplode {
       // Parse and run the program, starting from the outer scope.
       ParseState state{pos, symbol_table, symbol_table.GetRootScope(), lexer};
       auto cur_block = parser.ParseStatementList(state);
-      cur_block->Process();
 
       // Store this AST onto the full set we're working with.
       ast_root.AddChild(cur_block);
+
+      // And process just this new block.
+      cur_block->Process();
     }
 
-    // Sequentially load a series of configuration files.
+    /// Sequentially load a series of configuration files.
     void Load(const emp::vector<std::string> & filenames) {
       for ( const std::string & fn : filenames) Load(fn);
     }
 
-    // Load a single, specified configuration file.
-    // @param statements List is statements to be parsed.
-    // @param name Name of statement group (for error messages)
-    void LoadStatements(const emp::vector<std::string> & statements, const std::string & name) {
+    /// Load a single, specified configuration file.
+    /// @param statements Statement (std::string) or vector of statements to be parsed.
+    /// @param name Name of statement group (for error messages)
+    template <typename STATEMENT_T>
+    void LoadStatements(const STATEMENT_T & statements, const std::string & name) {
       emp::TokenStream tokens = lexer.Tokenize(statements, name);    // Convert to tokens.
       pos_t pos = tokens.begin();
 
@@ -314,7 +319,7 @@ namespace emplode {
       return result;                                        // Return the result string.
     }
 
-
+    /// Write out the code for this script to the provided stream.
     Emplode & Write(std::ostream & os=std::cout) {
       symbol_table.GetRootScope().WriteContents(os);
       os << '\n';
@@ -322,6 +327,7 @@ namespace emplode {
       return *this;
     }
 
+    /// Write out the code for this script to a file of the provided name.
     Emplode & Write(const std::string & filename) {
       // If the filename is empty or "_", output to standard out.
       if (filename == "" || filename == "_") return Write();
@@ -330,6 +336,21 @@ namespace emplode {
       std::ofstream out_file(filename);
       return Write(out_file);
     }
+
+    /// Look up the specified symbol and write it's config to the provided stream.
+    bool WriteSymbol(const std::string & symbol_name,
+                     std::ostream & os=std::cout,
+                     const std::string & prefix = "",
+                     size_t comment_offset = 32UL) {
+      auto symbol_ptr = symbol_table.GetRootScope().GetSymbol(symbol_name);
+      if (!symbol_ptr) {
+        os << prefix << "[Unknown symbol '" << symbol_name <<"'].\n";
+        return false;
+      }
+      symbol_ptr->Write(os, prefix, comment_offset);
+      return true;
+    }
+
   };
 
 }
