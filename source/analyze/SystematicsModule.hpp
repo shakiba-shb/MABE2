@@ -94,6 +94,10 @@ public:
     void TakeManualSnapshot(){
       sys.Snapshot(snapshot_file_root_name + "_manual_" + emp::MakeString(control.GetUpdate()) + ".csv");
     }
+
+    double CheckMeanPairwiseDistance() {
+      return sys.GetMeanPairwiseDistance();
+    }
     
     static void InitType(emplode::TypeInfo & info) {
       info.AddMemberFunction("SNAPSHOT",
@@ -102,6 +106,11 @@ public:
             return 0;
           },
           "Ouput snapshot to file");
+      info.AddMemberFunction("CheckMeanPairwiseDistance",
+          [](AnalyzeSystematics & mod) { 
+            return mod.CheckMeanPairwiseDistance();
+          },
+          "Check mean pairwise distance");
     }
 
     void BeforeDeath(OrgPosition pos) override {
