@@ -96,7 +96,15 @@ public:
     }
 
     double CheckMeanPairwiseDistance() {
-      return sys.GetMeanPairwiseDistance();
+      double mpd;
+      if (std::isnan(sys.GetMeanPairwiseDistance())) {
+          //std::cout << "Mean pairwise distance is NaN" << std::endl;
+          mpd = 0;
+      }
+      else {
+          mpd = sys.GetMeanPairwiseDistance();
+      }
+      return mpd;
     }
     
     static void InitType(emplode::TypeInfo & info) {
